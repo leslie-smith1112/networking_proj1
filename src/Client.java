@@ -2,6 +2,9 @@ import java.net.*;
 import java.io.*;
 import java.nio.*;
 import java.nio.channels.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.net.ConnectException;
 import java.net.Socket;
@@ -21,17 +24,23 @@ public class Client {
     int sPort;
     // for recieving fiels from the server
     InputStream in_stream;
-    FileOutputStream fos;
-    BufferedOutputStream bos;
-    FileInputStream fis;
+    BufferedOutputStream bos_put;
+    FileOutputStream fos_get;
+    BufferedOutputStream bos_get;
+    FileInputStream fis_put;
     BufferedInputStream bis;
     String continue_program;
-    String exists;
+    boolean exists;
     String port_command;
     String filename;
     String[] command_div;
+    String exists_get;
+    boolean needed = true;
+
+
 
     public void Client() {}
+
 
     void run()
     {
@@ -44,6 +53,7 @@ public class Client {
             out = new ObjectOutputStream(requestSocket.getOutputStream());
             out.flush();
             in = new ObjectInputStream(requestSocket.getInputStream());
+            bos_put = new BufferedOutputStream(requestSocket.getOutputStream());
 
             while (start_program == false) {
                 port_command = bufferedReader.readLine();
@@ -69,64 +79,151 @@ public class Client {
                 }
             }
             //get Input from standard input
-            //while(true)
-           // {
+            while(true)
+            {
                 command = bufferedReader.readLine();
                 command_div = command.split(" ");
-                //message = (String)in.readObject();
-                //Send the sentence to the server
-                //sendMessage(message);
-                //Receive the upperCase sentence from the server
-                //MESSAGE = (String)in.readObject();
-                //show the message to the user
-                //System.out.println("Receive message: " + MESSAGE);
-            switch (command_div[0]) {
-                case "get":
-                    try {
-                        sendMessage(command);
-                        message = (String) in.readObject(); // file exists
-                        System.out.println(message);
-                        if (message.equals("true")) {
-                            System.out.println("File exists, beginning download.");
 
-                            filename = "new_" + command_div[1];
-                            in_stream = requestSocket.getInputStream();
-                            fos = new FileOutputStream(filename);
-                            bos = new BufferedOutputStream(fos);
-                            byte data[] = new byte[1000];
-                            int byteContent;
-                            int count = 0;
-                            //System.out.println("Stuck 1");
-                            while ((byteContent = in_stream.read(data)) >= 0) {
-                                bos.write(data, 0, byteContent);
-                                count++;
-                            }
-                            System.out.println("count " + count);
-                            bos.close();
-                            fos.close();
-                        } else {
-                            System.out.println("Please enter a file that exits");
-                            break;
+                if(command_div[0].equals("get")){
+                    sendMessage(command);
+                    exists_get = (String)in.readObject();
+                    if(exists_get.equals("true")){
+                        filename = "new" + command_div[1];
+                        String file_size_string = (String)in.readObject();
+                        int file_size = Integer.parseInt(file_size_string);
+                        int buffer_size = 1000;
+
+                        //filename = "new.pptx";// + command_div[1];
+                        in_stream = requestSocket.getInputStream();
+
+                        fos_get = new FileOutputStream(filename);
+                        bos_get = new BufferedOutputStream(fos_get);
+                        byte data[] = new byte[buffer_size];
+                        long byteContent = 0;
+
+                        // read first buffers
+                        for (long i = 0; i < (file_size / buffer_size); i++)
+                        {
+                            byteContent += in_stream.read(data, 0, buffer_size);
+                            bos_get.write(data, 0, buffer_size);
                         }
-                    } catch(EOFException eofe){
-                        System.out.println("End of file reached.");
+                        // read remaining bytes
+                        byteContent += in_stream.read(data, 0, file_size % buffer_size);
+                        bos_get.write(data, 0, file_size % buffer_size);
 
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } catch (ClassNotFoundException e) {
-                        throw new RuntimeException(e);
+                        assert byteContent == file_size;
+                        System.out.println("count " + byteContent);
+                        bos_get.close();
+                        fos_get.close();
+                    }else{
+                        System.out.println("Please enter valid command and existing file.");
                     }
 
-                    System.out.println("Get out ");
-                    break;
 
-                case "put":
-                    System.out.println("Put out ");
-                    break;
-                default:
-                    System.out.println("Please enter a valid command and existing file.");
+                }else if(command_div[0].equals("put")){
+                    sendMessage(command);
+                    filename = System.getProperty("user.dir") +"/" + command_div[1];
+                    Path file_path = Paths.get(filename);
+                    File tmpFile = new File(filename);
+                    exists = tmpFile.exists();
+                    if(exists){
+                        sendMessage("true");
+                    }else{
+                        sendMessage("false");
+                    }
+                    if(exists){
+                        int file_size = (int) Files.size(file_path);
+                        // first send file size
+                        sendMessage(String.valueOf(file_size));
+
+                        byte[] data = new byte[1000];
+                        try
+                        {
+                            fis_put = new FileInputStream(tmpFile);
+                            bis = new BufferedInputStream(fis_put);
+                            int byteContent;
+                            while ((byteContent = bis.read(data)) > 0)
+                            {
+                                bos_put.write(data, 0, byteContent);
+                            }
+                            bos_put.flush();
+                            bis.close();
+                            fis_put.close();
+                            //message = (String)in.readObject();
+
+                        }
+                        catch(EOFException eofe)
+                        {
+                            System.out.println("End of file reached.");
+
+                        }
+                        catch (IOException e)
+                        {
+                            e.printStackTrace();
+                        }
+                    }else{
+                        System.out.println("Please enter valid command and existing file.");
+                    }
+
+
+                }else{
+                    System.out.println("Please enter valid command and existing file.");
+                }
+
+
+                /////////////////
+
+
+                // get header, i.e. just the size
+                /*String file_size_string = (String)in.readObject();
+                int file_size = Integer.parseInt(file_size_string);
+                int buffer_size = 1000;
+
+                //filename = "new.pptx";// + command_div[1];
+                in_stream = requestSocket.getInputStream();
+
+                fos = new FileOutputStream(filename);
+                bos = new BufferedOutputStream(fos);
+                byte data[] = new byte[buffer_size];
+                long byteContent = 0;
+
+                // read first buffers
+                for (long i = 0; i < (file_size / buffer_size); i++)
+                {
+                    byteContent += in_stream.read(data, 0, buffer_size);
+                    bos.write(data, 0, buffer_size);
+                }
+                // read remaining bytes
+                byteContent += in_stream.read(data, 0, file_size % buffer_size);
+                bos.write(data, 0, file_size % buffer_size);
+
+                assert byteContent == file_size;
+                System.out.println("count " + byteContent);
+                bos.close();
+                fos.close();*/
+                            /*} else {
+                                System.out.println("Please enter a file that exits");
+                                break;
+                            }
+                        } catch(EOFException eofe){
+                            System.out.println("End of file reached.");
+
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        } catch (ClassNotFoundException e) {
+                            throw new RuntimeException(e);
+                        }
+
+                        System.out.println("Get out ");
+                        break;
+
+                    case "put":
+                        System.out.println("Put out ");
+                        break;
+                    default:
+                        System.out.println("Please enter a valid command and existing file.");
+                }*/
             }
-            //}
         }
         catch (ConnectException e) {
             System.err.println("Connection refused. You need to initiate a server first.");
